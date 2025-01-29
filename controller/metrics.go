@@ -168,7 +168,8 @@ func RegistredMetrics() {
 		prometheusVmMemUsage,
 		prometheusVmCpuUsage,
 		prometheusVmNetRec,
-		prometheusVmDiskUsage)
+		prometheusVmDiskUsage,
+		prometheusVmDiskCapacity)
 }
 
 func NewVmwareHostMetrics(host string, username string, password string, logger *log.Logger) {

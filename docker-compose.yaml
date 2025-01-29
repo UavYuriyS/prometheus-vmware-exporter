@@ -1,0 +1,8 @@
+services:
+  vmware_exporter:
+    env_file: .env
+    ports:
+      - "9512:9512"
+    build:
+      context: .
+    image: sylweltan/prometheus-vmware-exporter
