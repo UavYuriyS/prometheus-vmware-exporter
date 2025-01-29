@@ -2,13 +2,14 @@ package controllers
 
 import (
 	"context"
-
+	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/view"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	"regexp"
 )
 
 const namespace = "vmware"
@@ -77,7 +78,7 @@ var (
 	prometheusVmCpuAval = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "vm",
-		Name:      "cpu_avaleblemhz",
+		Name:      "cpu_availablemhz",
 		Help:      "VMWare VM usage CPU",
 	}, []string{"vm_name", "host_name"})
 	prometheusVmCpuUsage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -95,7 +96,7 @@ var (
 	prometheusVmMemAval = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "vm",
-		Name:      "mem_avaleble",
+		Name:      "mem_available",
 		Help:      "Available memory",
 	}, []string{"vm_name", "host_name"})
 	prometheusVmMemUsage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -110,6 +111,18 @@ var (
 		Name:      "net_rec",
 		Help:      "Usage memory",
 	}, []string{"vm_name", "host_name"})
+	prometheusVmDiskCapacity = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "vm",
+		Name:      "disk_capacity",
+		Help:      "Full disk capacity",
+	}, []string{"vm_name", "host_name", "disk"})
+	prometheusVmDiskUsage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "vm",
+		Name:      "disk_usage",
+		Help:      "Disk space used on a disk",
+	}, []string{"vm_name", "host_name", "disk"})
 )
 
 func totalCpu(hs mo.HostSystem) float64 {
@@ -154,7 +167,8 @@ func RegistredMetrics() {
 		prometheusVmMemAval,
 		prometheusVmMemUsage,
 		prometheusVmCpuUsage,
-		prometheusVmNetRec)
+		prometheusVmNetRec,
+		prometheusVmDiskUsage)
 }
 
 func NewVmwareHostMetrics(host string, username string, password string, logger *log.Logger) {
@@ -250,12 +264,36 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 	}
 	defer v.Destroy(ctx)
 	var vms []mo.VirtualMachine
-	err = v.Retrieve(ctx, []string{"VirtualMachine"}, []string{"summary"}, &vms)
+	err = v.Retrieve(ctx, []string{"VirtualMachine"}, []string{"summary", "layout", "guest"}, &vms)
 	if err != nil {
 		logger.Fatal(err)
 	}
+
+	matcher := regexp.MustCompile(`\[.+]`)
+
 	for _, vm := range vms {
 		vmname := vm.Summary.Config.Name
+		fmt.Println(vmname)
+		fmt.Println(vm.Layout.Disk)
+		fmt.Println(vm.Guest.Disk)
+
+		fmt.Println("\n\n\n")
+
+		if vm.Guest.Disk != nil {
+			var disks = make(map[int32]string)
+
+			for _, disk := range vm.Layout.Disk {
+				disks[disk.Key] = matcher.FindString(disk.DiskFile[0])
+			}
+
+			for _, volume := range vm.Guest.Disk {
+				prometheusVmDiskUsage.WithLabelValues(
+					vmname, host, disks[volume.Mappings[0].Key]).Set(float64(volume.Capacity - volume.FreeSpace))
+				prometheusVmDiskCapacity.WithLabelValues(
+					vmname, host, disks[volume.Mappings[0].Key]).Set(float64(volume.Capacity))
+			}
+		}
+
 		prometheusVmBoot.WithLabelValues(vmname, host).Set(convertTime(vm))
 		prometheusVmCpuAval.WithLabelValues(vmname, host).Set(float64(vm.Summary.Runtime.MaxCpuUsage) * 1000 * 1000)
 		prometheusVmCpuUsage.WithLabelValues(vmname, host).Set(float64(vm.Summary.QuickStats.OverallCpuUsage) * 1000 * 1000)
