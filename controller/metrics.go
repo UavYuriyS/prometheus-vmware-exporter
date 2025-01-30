@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"github.com/vmware/govmomi/find"
@@ -116,13 +115,13 @@ var (
 		Subsystem: "vm",
 		Name:      "disk_capacity",
 		Help:      "Full disk capacity",
-	}, []string{"vm_name", "host_name", "disk"})
+	}, []string{"vm_name", "host_name", "disk", "mount_point"})
 	prometheusVmDiskUsage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Subsystem: "vm",
 		Name:      "disk_usage",
 		Help:      "Disk space used on a disk",
-	}, []string{"vm_name", "host_name", "disk"})
+	}, []string{"vm_name", "host_name", "disk", "mount_point"})
 )
 
 func totalCpu(hs mo.HostSystem) float64 {
@@ -274,24 +273,21 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 
 	for _, vm := range vms {
 		vmname := vm.Summary.Config.Name
-		fmt.Println(vmname)
-		fmt.Println(vm.Layout.Disk)
-		fmt.Println(vm.Guest.Disk)
-
-		fmt.Println("\n\n\n")
-
 		if vm.Guest.Disk != nil {
 			var disks = make(map[int32]string)
 
 			for _, disk := range vm.Layout.Disk {
-				disks[disk.Key] = matcher.FindString(disk.DiskFile[0])
+				var ds_name = matcher.FindString(disk.DiskFile[0])
+				disks[disk.Key] = ds_name[1 : len(ds_name)-1]
 			}
 
 			for _, volume := range vm.Guest.Disk {
 				prometheusVmDiskUsage.WithLabelValues(
-					vmname, host, disks[volume.Mappings[0].Key]).Set(float64(volume.Capacity - volume.FreeSpace))
+					vmname, host, disks[volume.Mappings[0].Key], volume.DiskPath,
+				).Set(float64(volume.Capacity - volume.FreeSpace))
 				prometheusVmDiskCapacity.WithLabelValues(
-					vmname, host, disks[volume.Mappings[0].Key]).Set(float64(volume.Capacity))
+					vmname, host, disks[volume.Mappings[0].Key], volume.DiskPath,
+				).Set(float64(volume.Capacity))
 			}
 		}
 
