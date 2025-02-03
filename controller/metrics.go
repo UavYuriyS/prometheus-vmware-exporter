@@ -122,6 +122,12 @@ var (
 		Name:      "disk_usage",
 		Help:      "Disk space used on a disk",
 	}, []string{"vm_name", "host_name", "disk", "mount_point"})
+	prometheusVmRunning = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: "vm",
+		Name:      "is_running",
+		Help:      "is VM running",
+	}, []string{"vm_name", "host_name"})
 )
 
 func totalCpu(hs mo.HostSystem) float64 {
@@ -168,7 +174,8 @@ func RegistredMetrics() {
 		prometheusVmCpuUsage,
 		prometheusVmNetRec,
 		prometheusVmDiskUsage,
-		prometheusVmDiskCapacity)
+		prometheusVmDiskCapacity,
+		prometheusVmRunning)
 }
 
 func NewVmwareHostMetrics(host string, username string, password string, logger *log.Logger) {
@@ -291,6 +298,12 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 			}
 		}
 
+		isRunning := 0
+		if vm.Guest.GuestState == "running" {
+			isRunning = 1
+		}
+
+		prometheusVmRunning.WithLabelValues(vmname, host).Set(float64(isRunning))
 		prometheusVmBoot.WithLabelValues(vmname, host).Set(convertTime(vm))
 		prometheusVmCpuAval.WithLabelValues(vmname, host).Set(float64(vm.Summary.Runtime.MaxCpuUsage) * 1000 * 1000)
 		prometheusVmCpuUsage.WithLabelValues(vmname, host).Set(float64(vm.Summary.QuickStats.OverallCpuUsage) * 1000 * 1000)
