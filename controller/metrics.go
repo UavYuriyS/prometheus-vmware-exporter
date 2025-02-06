@@ -13,6 +13,8 @@ import (
 
 const namespace = "vmware"
 
+var active_vms = make(map[string]bool)
+
 var (
 	prometheusHostPowerState = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
@@ -280,6 +282,27 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 
 	for _, vm := range vms {
 		vmname := vm.Summary.Config.Name
+		active_vms[vmname] = false
+	}
+
+	for vm, toDelete := range active_vms {
+		if toDelete {
+			for _, metric := range []*prometheus.GaugeVec{
+				prometheusVmRunning, prometheusVmBoot, prometheusVmCpuAval,
+				prometheusVmCpuUsage, prometheusVmNumCpu, prometheusVmMemAval, prometheusVmMemUsage} {
+
+				metric.DeletePartialMatch(prometheus.Labels{"vm_name": vm})
+				delete(active_vms, vm)
+			}
+		}
+	}
+
+	for k := range active_vms {
+		active_vms[k] = true
+	}
+
+	for _, vm := range vms {
+		vmname := vm.Summary.Config.Name
 		if vm.Guest.Disk != nil {
 			var disks = make(map[int32]string)
 
@@ -302,7 +325,6 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 		if vm.Guest.GuestState == "running" {
 			isRunning = 1
 		}
-
 		prometheusVmRunning.WithLabelValues(vmname, host).Set(float64(isRunning))
 		prometheusVmBoot.WithLabelValues(vmname, host).Set(convertTime(vm))
 		prometheusVmCpuAval.WithLabelValues(vmname, host).Set(float64(vm.Summary.Runtime.MaxCpuUsage) * 1000 * 1000)
