@@ -311,12 +311,21 @@ func NewVmwareVmMetrics(host string, username string, password string, logger *l
 				disks[disk.Key] = ds_name[1 : len(ds_name)-1]
 			}
 
-			for _, volume := range vm.Guest.Disk {
+			for idx, volume := range vm.Guest.Disk {
+
+				dstore := ""
+				if volume.Mappings == nil {
+					dstore = matcher.FindString(vm.Layout.Disk[idx].DiskFile[0])
+					dstore = dstore[1 : len(dstore)-1]
+				} else {
+					dstore = disks[volume.Mappings[0].Key]
+				}
+
 				prometheusVmDiskUsage.WithLabelValues(
-					vmname, host, disks[volume.Mappings[0].Key], volume.DiskPath,
+					vmname, host, dstore, volume.DiskPath,
 				).Set(float64(volume.Capacity - volume.FreeSpace))
 				prometheusVmDiskCapacity.WithLabelValues(
-					vmname, host, disks[volume.Mappings[0].Key], volume.DiskPath,
+					vmname, host, dstore, volume.DiskPath,
 				).Set(float64(volume.Capacity))
 			}
 		}
